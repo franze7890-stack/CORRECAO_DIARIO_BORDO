@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>Controle KM</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+
+<style>
+  body {
+    font-family: Arial;
+    text-align: center;
+    background: #f5f7fa;
+  }
+
+  .container {
+    background: white;
+    padding: 20px;
+    margin: 20px auto;
+    width: 85%;
+    border-radius: 10px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+  }
+
+  .topo input {
+    padding: 6px;
+    margin: 5px;
+    text-align: center;
+    font-weight: bold;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  th, td {
+    border: 1px solid #ccc;
+    padding: 8px;
+  }
+
+  th {
+    background-color: #1f4e78;
+    color: white;
+  }
+
+  input[type="number"] {
+    width: 95%;
+    text-align: center;
+    border: none;
+    background: transparent;
+  }
+
+  button {
+    margin: 5px;
+    padding: 8px 12px;
+    cursor: pointer;
+    border: none;
+    border-radius: 5px;
+  }
+
+  .add { background: #28a745; color: white; }
+  .pdf { background: #007bff; color: white; }
+  .del { background: #dc3545; color: white; }
+
+  #aviso {
+    display: none;
+    background: #ffe0e0;
+    color: #a10000;
+    padding: 10px;
+    margin: 10px auto;
+    width: 85%;
+    border: 1px solid #a10000;
+    border-radius: 8px;
+    font-weight: bold;
+  }
+
+  h3 { margin: 5px; }
+
+  /* ERRO */
+  .erro {
+    border: 2px solid red !important;
+    background-color: #ffe6e6 !important;
+  }
+</style>
+</head>
+
+<body>
+
+<div id="aviso"></div>
+
+<div class="container">
+
+<div class="topo">
+  PLACA: <input id="placa" placeholder="Ex: NZU-1924" oninput="salvarCabecalho()">
+  MOTORISTA: <input id="motorista" placeholder="Nome" oninput="salvarCabecalho()">
+</div>
+
+<table>
+<thead>
+<tr>
+<th>KM SAÍDA</th>
+<th>KM CHEGADA</th>
+<th>KM PERCORRIDO</th>
+<th>AÇÃO</th>
+</tr>
+</thead>
+
+<tbody id="corpoTabela"></tbody>
+</table>
+
+<button class="add" onclick="adicionarLinha()">➕ Adicionar</button>
+<button class="pdf" onclick="gerarPDF()">📄 Gerar PDF</button>
+
+<h3 id="dias">DIAS TRABALHADOS: 0</h3>
+<h3 id="total">TOTAL KM PERCORRIDO: 0</h3>
+
+</div>
+
+<script>
+
+// AVISO
+function mostrarAviso(texto) {
+  const aviso = document.getElementById("aviso");
+  aviso.innerText = texto;
+  aviso.style.display = "block";
+
+  setTimeout(() => {
+    aviso.style.display = "none";
+  }, 3000);
+}
+
+// CABEÇALHO
+function salvarCabecalho() {
+  localStorage.setItem("cabecalhoKM", JSON.stringify({
+    placa: placa.value,
+    motorista: motorista.value
+  }));
+}
+
+function carregarCabecalho() {
+  const dados = JSON.parse(localStorage.getItem("cabecalhoKM")) || {};
+  placa.value = dados.placa || "";
+  motorista.value = dados.motorista || "";
+}
+
+// DADOS
+function salvarDados() {
+  let dados = [];
+
+  document.querySelectorAll("#corpoTabela tr").forEach(linha => {
+    dados.push({
+      saida: linha.children[0].children[0].value,
+      km: linha.children[2].children[0].value
+    });
+  });
+
+  localStorage.setItem("kmDados", JSON.stringify(dados));
+}
+
+function carregarDados() {
+  const dados = JSON.parse(localStorage.getItem("kmDados")) || [];
+
+  if (dados.length === 0) {
+    adicionarLinha();
+    return;
+  }
+
+  dados.forEach(d => adicionarLinha(d.saida, d.km));
+}
+
+// LINHAS
+function adicionarLinha(saida = "", km = "") {
+  const linha = document.createElement("tr");
+
+  linha.innerHTML = `
+    <td><input type="number" value="${saida}" oninput="calcular(this)"></td>
+    <td><input type="number" readonly></td>
+    <td><input type="number" value="${km}" oninput="calcular(this)"></td>
+    <td><button class="del" onclick="removerLinha(this)">X</button></td>
+  `;
+
+  corpoTabela.appendChild(linha);
+  calcular(linha.children[0].children[0]);
+}
+
+function removerLinha(btn) {
+  btn.closest("tr").remove();
+  atualizarTudo();
+}
+
+// VALIDAÇÃO (SEM BLOQUEAR)
+function validarSequencia() {
+  const linhas = document.querySelectorAll("#corpoTabela tr");
+
+  for (let i = 1; i < linhas.length; i++) {
+    const anterior = linhas[i - 1];
+    const atual = linhas[i];
+
+    const chegadaAnterior =
+      parseInt(anterior.children[1].children[0].value) || 0;
+
+    const saidaAtualInput = atual.children[0].children[0];
+    const saidaAtual = parseInt(saidaAtualInput.value) || 0;
+
+    saidaAtualInput.classList.remove("erro");
+
+    if (chegadaAnterior && saidaAtual && saidaAtual < chegadaAnterior) {
+      mostrarAviso(`❌ KM SAÍDA (${saidaAtual}) menor que KM anterior (${chegadaAnterior})`);
+      saidaAtualInput.classList.add("erro");
+    }
+  }
+}
+
+// DETECTAR ERRO (PARA PDF)
+function linhaTemErro(linha, index, linhas) {
+  if (index === 0) return false;
+
+  const anterior = linhas[index - 1];
+
+  const chegadaAnterior =
+    parseInt(anterior.children[1].children[0].value) || 0;
+
+  const saidaAtual =
+    parseInt(linha.children[0].children[0].value) || 0;
+
+  return (chegadaAnterior && saidaAtual && saidaAtual < chegadaAnterior);
+}
+
+// CÁLCULO
+function calcular(input) {
+  const linha = input.closest("tr");
+
+  const kmSaida = parseInt(linha.children[0].children[0].value) || 0;
+  const kmPercorrido = parseInt(linha.children[2].children[0].value) || 0;
+
+  linha.children[1].children[0].value =
+    (kmSaida && kmPercorrido) ? kmSaida + kmPercorrido : "";
+
+  validarSequencia();
+  atualizarTudo();
+}
+
+// ATUALIZAÇÕES
+function atualizarTudo() {
+  atualizarTotal();
+  atualizarDias();
+  salvarDados();
+}
+
+// TOTAL
+function atualizarTotal() {
+  let total = 0;
+
+  document.querySelectorAll("#corpoTabela tr").forEach(linha => {
+    total += parseInt(linha.children[2].children[0].value) || 0;
+  });
+
+  total.innerText = total;
+
+  document.getElementById("total").innerText =
+    "TOTAL KM PERCORRIDO: " + total;
+}
+
+// DIAS
+function atualizarDias() {
+  let dias = 0;
+
+  document.querySelectorAll("#corpoTabela tr").forEach(linha => {
+    if (linha.children[2].children[0].value) dias++;
+  });
+
+  document.getElementById("dias").innerText =
+    "DIAS TRABALHADOS: " + dias;
+}
+
+// PDF COM ERRO
+function gerarPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  doc.text("PLACA: " + placa.value, 14, 10);
+  doc.text("MOTORISTA: " + motorista.value, 14, 18);
+
+  let dados = [];
+  let linhas = document.querySelectorAll("#corpoTabela tr");
+  let temErro = false;
+
+  linhas.forEach((linha, index) => {
+    const erro = linhaTemErro(linha, index, linhas);
+    if (erro) temErro = true;
+
+    dados.push({
+      data: [
+        linha.children[0].children[0].value || "",
+        linha.children[1].children[0].value || "",
+        linha.children[2].children[0].value || ""
+      ],
+      erro: erro
+    });
+  });
+
+  doc.autoTable({
+    head: [['KM SAÍDA', 'KM CHEGADA', 'KM PERCORRIDO']],
+    body: dados.map(d => d.data),
+    startY: 25,
+    styles: { halign: 'center' },
+    headStyles: { fillColor: [31, 78, 120] },
+
+    didParseCell: function (data) {
+      if (data.section === 'body') {
+        if (dados[data.row.index].erro) {
+          data.cell.styles.fillColor = [255, 200, 200];
+        }
+      }
+    }
+  });
+
+  let y = doc.lastAutoTable.finalY + 10;
+
+  if (temErro) {
+    doc.setTextColor(200, 0, 0);
+    doc.text("ATENCAO: EXISTEM ERROS - VERIFICAR", 14, y);
+    doc.setTextColor(0, 0, 0);
+    y += 8;
+  }
+
+  doc.text(document.getElementById("dias").innerText, 14, y);
+  doc.text(document.getElementById("total").innerText, 14, y + 8);
+
+  doc.save("relatorio_km.pdf");
+}
+
+// INICIAL
+carregarCabecalho();
+carregarDados();
+
+</script>
+
+</body>
+</html>
