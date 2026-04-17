@@ -23,13 +23,14 @@
     box-shadow: 0 0 10px rgba(0,0,0,0.1);
   }
 
-  .topo input {
+  .topo input, .topo select {
     padding: 6px;
     margin: 5px;
     text-align: center;
     font-weight: bold;
     border: 1px solid #ccc;
     border-radius: 5px;
+    text-transform: uppercase;
   }
 
   table {
@@ -80,7 +81,6 @@
 
   h3 { margin: 5px; }
 
-  /* ERRO */
   .erro {
     border: 2px solid red !important;
     background-color: #ffe6e6 !important;
@@ -95,8 +95,11 @@
 <div class="container">
 
 <div class="topo">
-  PLACA: <input id="placa" placeholder="Ex: NZU-1924" oninput="salvarCabecalho()">
+  PLACA: <input id="placa" placeholder="Ex: OLJ-0A42" oninput="salvarCabecalho()">
   MOTORISTA: <input id="motorista" placeholder="Nome" oninput="salvarCabecalho()">
+  <br>
+  MÊS/ANO: 
+  <select id="mes" onchange="salvarCabecalho()"></select>
 </div>
 
 <table>
@@ -127,17 +130,15 @@ function mostrarAviso(texto) {
   const aviso = document.getElementById("aviso");
   aviso.innerText = texto;
   aviso.style.display = "block";
-
-  setTimeout(() => {
-    aviso.style.display = "none";
-  }, 3000);
+  setTimeout(() => aviso.style.display = "none", 3000);
 }
 
 // CABEÇALHO
 function salvarCabecalho() {
   localStorage.setItem("cabecalhoKM", JSON.stringify({
-    placa: placa.value,
-    motorista: motorista.value
+    placa: placa.value.toUpperCase(),
+    motorista: motorista.value.toUpperCase(),
+    mes: mes.value.toUpperCase()
   }));
 }
 
@@ -145,6 +146,33 @@ function carregarCabecalho() {
   const dados = JSON.parse(localStorage.getItem("cabecalhoKM")) || {};
   placa.value = dados.placa || "";
   motorista.value = dados.motorista || "";
+  mes.value = dados.mes || "";
+}
+
+// MÊS + ANO
+function definirMesAtual() {
+  const meses = [
+    "JANEIRO","FEVEREIRO","MARÇO","ABRIL","MAIO","JUNHO",
+    "JULHO","AGOSTO","SETEMBRO","OUTUBRO","NOVEMBRO","DEZEMBRO"
+  ];
+
+  const hoje = new Date();
+  const anoAtual = hoje.getFullYear();
+
+  mes.innerHTML = '<option value="">SELECIONE</option>';
+
+  for (let ano = anoAtual; ano >= anoAtual - 1; ano--) {
+    meses.forEach(m => {
+      const valor = `${m}/${ano}`;
+      const option = document.createElement("option");
+      option.value = valor;
+      option.textContent = valor;
+      mes.appendChild(option);
+    });
+  }
+
+  const atual = `${meses[hoje.getMonth()]}/${anoAtual}`;
+  if (!mes.value) mes.value = atual;
 }
 
 // DADOS
@@ -163,12 +191,7 @@ function salvarDados() {
 
 function carregarDados() {
   const dados = JSON.parse(localStorage.getItem("kmDados")) || [];
-
-  if (dados.length === 0) {
-    adicionarLinha();
-    return;
-  }
-
+  if (dados.length === 0) return adicionarLinha();
   dados.forEach(d => adicionarLinha(d.saida, d.km));
 }
 
@@ -192,7 +215,7 @@ function removerLinha(btn) {
   atualizarTudo();
 }
 
-// VALIDAÇÃO (SEM BLOQUEAR)
+// VALIDAÇÃO TELA
 function validarSequencia() {
   const linhas = document.querySelectorAll("#corpoTabela tr");
 
@@ -209,13 +232,13 @@ function validarSequencia() {
     saidaAtualInput.classList.remove("erro");
 
     if (chegadaAnterior && saidaAtual && saidaAtual < chegadaAnterior) {
-      mostrarAviso(`❌ KM SAÍDA (${saidaAtual}) menor que KM anterior (${chegadaAnterior})`);
+      mostrarAviso(`❌ KM SAÍDA (${saidaAtual}) menor que anterior (${chegadaAnterior})`);
       saidaAtualInput.classList.add("erro");
     }
   }
 }
 
-// DETECTAR ERRO (PARA PDF)
+// ERRO PDF
 function linhaTemErro(linha, index, linhas) {
   if (index === 0) return false;
 
@@ -253,37 +276,38 @@ function atualizarTudo() {
 
 // TOTAL
 function atualizarTotal() {
-  let total = 0;
-
+  let soma = 0;
   document.querySelectorAll("#corpoTabela tr").forEach(linha => {
-    total += parseInt(linha.children[2].children[0].value) || 0;
+    soma += parseInt(linha.children[2].children[0].value) || 0;
   });
-
-  total.innerText = total;
-
   document.getElementById("total").innerText =
-    "TOTAL KM PERCORRIDO: " + total;
+    "TOTAL KM PERCORRIDO: " + soma;
 }
 
 // DIAS
 function atualizarDias() {
   let dias = 0;
-
   document.querySelectorAll("#corpoTabela tr").forEach(linha => {
     if (linha.children[2].children[0].value) dias++;
   });
-
   document.getElementById("dias").innerText =
     "DIAS TRABALHADOS: " + dias;
 }
 
-// PDF COM ERRO
+// PDF (COM VALIDAÇÃO)
 function gerarPDF() {
+
+  if (!placa.value) {
+    mostrarAviso("❌ INFORME A PLACA");
+    return;
+  }
+
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
 
-  doc.text("PLACA: " + placa.value, 14, 10);
-  doc.text("MOTORISTA: " + motorista.value, 14, 18);
+  doc.text("PLACA: " + placa.value.toUpperCase(), 14, 10);
+  doc.text("MOTORISTA: " + motorista.value.toUpperCase(), 14, 18);
+  doc.text("MÊS: " + mes.value.toUpperCase(), 14, 26);
 
   let dados = [];
   let linhas = document.querySelectorAll("#corpoTabela tr");
@@ -306,7 +330,7 @@ function gerarPDF() {
   doc.autoTable({
     head: [['KM SAÍDA', 'KM CHEGADA', 'KM PERCORRIDO']],
     body: dados.map(d => d.data),
-    startY: 25,
+    startY: 35,
     styles: { halign: 'center' },
     headStyles: { fillColor: [31, 78, 120] },
 
@@ -331,11 +355,15 @@ function gerarPDF() {
   doc.text(document.getElementById("dias").innerText, 14, y);
   doc.text(document.getElementById("total").innerText, 14, y + 8);
 
-  doc.save("relatorio_km.pdf");
+  const placaFormatada = placa.value.replace(/[^A-Z0-9-]/gi, "").toUpperCase();
+  const mesFormatado = mes.value.replace("/", "-").toUpperCase();
+
+  doc.save(`RELATORIO_KM_${placaFormatada}_${mesFormatado}.pdf`);
 }
 
 // INICIAL
 carregarCabecalho();
+definirMesAtual();
 carregarDados();
 
 </script>
